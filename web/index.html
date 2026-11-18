@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet reliability — descriptive survival analysis (fictional data)</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-palette="#2a78d6,#eb6834,#1baf7a,#eda100">
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <div>
+      <h1>Fleet reliability</h1>
+      <p class="sub">Descriptive survival analysis · fictional data · no prediction model</p>
+    </div>
+  </div>
+  <div class="topmeta" id="topmeta" aria-live="polite"></div>
+</header>
+
+<div class="banner" role="note">
+  <strong>Synthetic data.</strong> Every device, site and fault below is
+  fabricated to exercise delayed entry, late reporting and observation exits.
+  No medical or individual diagnostic conclusion may be drawn, and nothing here
+  is a predictive model.
+</div>
+
+<nav class="tabs" aria-label="Sections">
+  <button class="tab is-active" data-view="curves">Curves &amp; uncertainty</button>
+  <button class="tab" data-view="devices">Devices</button>
+  <button class="tab" data-view="builds">Builds</button>
+  <button class="tab" data-view="compare">Strategy cost</button>
+  <button class="tab" data-view="reports">Reports</button>
+  <button class="tab" data-view="data">Data intake</button>
+  <button class="tab" data-view="method">Method</button>
+</nav>
+
+<main id="main">
+
+<!-- ================= CURVES ================= -->
+<section class="view is-active" id="view-curves">
+  <div class="filters" role="group" aria-label="Analysis filters">
+    <label class="field">
+      <span>Report</span>
+      <select id="report-select"></select>
+    </label>
+    <label class="field">
+      <span>Compare with</span>
+      <select id="report-compare">
+        <option value="">none</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Risk sets</span>
+      <div class="chips" id="cohort-chips">
+        <label class="chip"><input type="checkbox" value="overall" checked> All devices</label>
+        <label class="chip"><input type="checkbox" value="safe" checked> Safe</label>
+        <label class="chip"><input type="checkbox" value="watch" checked> Watch</label>
+        <label class="chip"><input type="checkbox" value="danger" checked> Danger</label>
+      </div>
+    </label>
+    <label class="field">
+      <span>Band</span>
+      <select id="band-select">
+        <option value="both">Greenwood + bootstrap</option>
+        <option value="greenwood">Greenwood 95%</option>
+        <option value="bootstrap">Bootstrap 95%</option>
+        <option value="none">Point estimate only</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="stale-note"></div>
+
+  <div class="grid-2">
+    <figure class="card chart-card">
+      <figcaption>
+        <div>
+          <h2 id="curve-title">Fault-free survival by risk set</h2>
+          <p class="caption" id="curve-caption">Age is days on the service clock
+            (commissioning or last pre-observation repair). Entry is delayed to
+            the first observed age.</p>
+        </div>
+        <div class="legend" id="curve-legend" aria-label="Series legend"></div>
+      </figcaption>
+      <div class="chart-wrap" id="curve-chart"></div>
+      <div class="chart-foot">
+        <p class="hint" id="curve-hint"></p>
+        <button class="linkbtn" id="toggle-table" aria-expanded="false">Show table view</button>
+      </div>
+      <div class="tablewrap" id="curve-table" hidden></div>
+    </figure>
+
+    <div class="stack">
+      <div class="card stat-card">
+        <h3>Median age at first fault</h3>
+        <p class="hero" id="stat-median">—</p>
+        <p class="caption" id="stat-median-note"></p>
+      </div>
+      <div class="card">
+        <h3>Right-censoring, kept separate</h3>
+        <div id="censor-breakdown" class="censorgrid"></div>
+        <p class="caption">“Not yet failed” and “exited observation” are both
+          censored, but they mean different things: one is the edge of what we
+          know, the other is a monitoring decision.</p>
+      </div>
+      <div class="card">
+        <h3>Delayed entry</h3>
+        <div id="truncation-block"></div>
+      </div>
+      <div class="card">
+        <h3>Cohort composition</h3>
+        <div id="status-block"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <figure class="card chart-card">
+      <figcaption>
+        <div>
+          <h2>At-risk table</h2>
+          <p class="caption">How many devices support the curve at each age, and
+            how many have failed. A tail resting on one or two devices is visible
+            here rather than hidden.</p>
+        </div>
+      </figcaption>
+      <div class="tablewrap" id="atrisk-table"></div>
+    </figure>
+    <div class="card">
+      <h3>What the numbers do not say</h3>
+      <ul class="caveats" id="caveats"></ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Average lifetime, done two ways</h3>
+    <div id="naive-block" class="naive"></div>
+  </div>
+</section>
+
+<!-- ================= DEVICES ================= -->
+<section class="view" id="view-devices">
+  <div class="filters" role="group" aria-label="Device filters">
+    <label class="field grow">
+      <span>Search</span>
+      <input type="search" id="device-search" placeholder="Device id, model or site">
+    </label>
+    <label class="field">
+      <span>Status in report</span>
+      <select id="device-status">
+        <option value="">any</option>
+        <option value="faulted">faulted</option>
+        <option value="not_yet_failed">not yet failed</option>
+        <option value="exited">exited observation</option>
+        <option value="pre_entry_fault">pre-entry fault</option>
+        <option value="not_yet_observed">not yet observed</option>
+        <option value="void">void window</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Entered risk set</span>
+      <select id="device-cohort">
+        <option value="">any</option>
+        <option value="safe">safe</option>
+        <option value="watch">watch</option>
+        <option value="danger">danger</option>
+      </select>
+    </label>
+  </div>
+  <div class="grid-devices">
+    <div class="card list-card">
+      <div class="listhead">
+        <h2>Devices</h2>
+        <span class="count" id="device-count"></span>
+      </div>
+      <div id="device-list" class="devlist" role="listbox" aria-label="Devices"></div>
+    </div>
+    <div class="card detail-card" id="device-detail">
+      <p class="empty">Select a device to see its observation window, pre-entry
+        time, faults and the basis for every risk set it entered.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= BUILDS ================= -->
+<section class="view" id="view-builds">
+  <div class="card">
+    <h2>Rebuild queue</h2>
+    <p class="caption">Builds derive samples and a report from canonical data at
+      one <em>data revision</em>. Pausing stops after the current device; resuming
+      continues from the stored cursor. A new report never overwrites an old one.</p>
+    <form id="build-form" class="filters">
+      <label class="field"><span>Cutoff (as of)</span>
+        <input type="date" id="build-asof" required></label>
+      <label class="field"><span>Strategy</span>
+        <select id="build-strategy"></select></label>
+      <label class="field"><span>Incremental from</span>
+        <select id="build-parent"><option value="">full rebuild</option></select></label>
+      <label class="field"><span>Bootstrap reps</span>
+        <input type="number" id="build-reps" value="300" min="0" max="2000"></label>
+      <button class="btn primary" type="submit">Start build</button>
+    </form>
+    <div id="build-feedback" class="feedback" aria-live="polite"></div>
+    <div class="tablewrap" id="build-list"></div>
+  </div>
+</section>
+
+<!-- ================= COMPARE ================= -->
+<section class="view" id="view-compare">
+  <div class="filters" role="group" aria-label="Comparison controls">
+    <label class="field"><span>Cutoff</span><input type="date" id="compare-asof"></label>
+    <button class="btn" id="compare-run">Measure both strategies</button>
+  </div>
+  <div class="card">
+    <h2>Per-device interval cache vs whole-dataset recompute</h2>
+    <p class="caption">Both strategies produce identical curves. The table below is
+      a <em>measured</em> cost comparison on the current data — not an estimate and
+      not a claim about which estimate is better.</p>
+    <div id="compare-out" class="compare-out"><p class="empty">Run a comparison to
+      measure both arms on the current dataset.</p></div>
+  </div>
+</section>
+
+<!-- ================= REPORTS ================= -->
+<section class="view" id="view-reports">
+  <div class="card">
+    <h2>Report history</h2>
+    <p class="caption">Reports are immutable. When data is revised or a late fault
+      arrives, a new build supersedes the old report; the old one stays readable
+      and is marked stale against the current data revision.</p>
+    <div class="tablewrap" id="report-list"></div>
+  </div>
+  <div class="card" id="report-detail"></div>
+</section>
+
+<!-- ================= DATA ================= -->
+<section class="view" id="view-data">
+  <div class="grid-2">
+    <div class="card">
+      <h2>Ingest a batch</h2>
+      <p class="caption">Append-only. A correction is a new revision of an existing
+        <code>event_key</code>; <code>retracted: true</code> withdraws it. Replaying
+        the same payload is a no-op.</p>
+      <label class="field block"><span>JSON payload</span>
+        <textarea id="ingest-json" rows="14" spellcheck="false"></textarea></label>
+      <div class="row">
+        <button class="btn primary" id="ingest-send">Ingest</button>
+        <button class="btn" id="ingest-validate">Validate only</button>
+      </div>
+      <div id="ingest-feedback" class="feedback" aria-live="polite"></div>
+    </div>
+    <div class="card">
+      <h2>Batch lineage</h2>
+      <div class="tablewrap" id="batch-list"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= METHOD ================= -->
+<section class="view" id="view-method">
+  <div class="card prose">
+    <h2>Method, stated plainly</h2>
+    <h3>Three histories, never merged</h3>
+    <ul>
+      <li><strong>Pre-entry time.</strong> Days a device existed before
+        observation began. It is left truncation, not observed fault-free life.
+        The device enters every risk set at its entry age, so early ages are not
+        estimated from late entrants.</li>
+      <li><strong>Not yet failed.</strong> Under observation at the cutoff with no
+        fault. Right-censored; future data can still change it.</li>
+      <li><strong>Exited observation.</strong> Monitoring was closed before the
+        cutoff without a fault. Right-censored at the exit date, and counted
+        separately from “not yet failed”.</li>
+    </ul>
+    <h3>The estimator</h3>
+    <p>Kaplan–Meier on the age scale with delayed entry and right censoring;
+      Greenwood variance with a log–log 95% band; a seeded device-level bootstrap
+      as a second band; median and restricted mean reported only to the largest
+      observed age. If the median is not reached, no value is invented.</p>
+    <h3>Risk sets</h3>
+    <p>The service clock starts at commissioning (or a repair before observation)
+      and the fraction of the model’s maintenance interval partitions the clock:
+      safe &lt; 0.34, watch 0.34–0.67, danger ≥ 0.67. This is a bookkeeping label
+      supplied by maintenance policy, not a probability and not a prediction.</p>
+    <h3>Late and revised data</h3>
+    <p>Faults carry both the date they happened and the date they were reported;
+      a fault reported months late still counts for cuts after its fault date.
+      Corrections and retractions are append-only revisions. Each report records
+      the data revision and algorithm version it used, and is marked stale when
+      the data moves on.</p>
+    <h3>Cost, not quality</h3>
+    <p>The two build strategies differ in caching only. One keeps per-device
+      intervals for reuse; the other recomputes everything each time. The
+      comparison table reports measured build time and row counts, never a
+      “better” lifetime.</p>
+    <h3>What this is not</h3>
+    <p>No covariates, no hazard model, no extrapolation, no individual diagnosis,
+      no medical or clinical conclusion, and no trained prediction model. The
+      curves describe observed exposure in fictional data; they do not forecast
+      the future life of any device. A naive average over fault records is shown
+      in the side panel only as a contrast, because it omits censored devices and
+      is biased toward short lives.</p>
+  </div>
+</section>
+
+</main>
+
+<div class="tooltip" id="tooltip" role="status" aria-live="polite" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
